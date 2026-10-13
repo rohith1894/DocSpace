@@ -36,6 +36,22 @@ public class CollaborationWebSocketHandler extends TextWebSocketHandler {
 
             switch (msg.type()) {
                 case JOIN -> {
+                    // Send existing active members to the joining user so they see everyone
+                    java.util.List<CollaborationRoomManager.SessionMeta> existing =
+                            roomManager.getActiveMembers(msg.documentId(), session.getId());
+                    for (CollaborationRoomManager.SessionMeta existingMember : existing) {
+                        CollaborationMessage presence = new CollaborationMessage(
+                                com.example.docspace.collaboration.model.MessageType.PRESENCE,
+                                msg.documentId(),
+                                existingMember.userId(),
+                                existingMember.userName(),
+                                "{\"color\":\"#EA4335\"}"
+                        );
+                        synchronized (session) {
+                            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(presence)));
+                        }
+                    }
+
                     roomManager.joinRoom(msg.documentId(), msg.userId(), msg.userName(), session);
                     // Broadcast user joined event to existing room members
                     roomManager.broadcastToRoom(msg.documentId(), msg, session);

@@ -57,6 +57,16 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
     }
   }, [editor, readOnly])
 
+  // Synchronize external / collaborative updates when content changes remotely
+  useEffect(() => {
+    if (editor && initialContent !== undefined) {
+      const currentHTML = editor.getHTML()
+      if (currentHTML !== initialContent && !editor.isFocused) {
+        editor.commands.setContent(initialContent, { emitUpdate: false })
+      }
+    }
+  }, [editor, initialContent])
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {

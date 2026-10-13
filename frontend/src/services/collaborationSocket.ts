@@ -44,9 +44,10 @@ export class CollaborationSocket {
     if (!this.documentId || !this.user) return
 
     const configuredWs = import.meta.env.VITE_WS_URL
-    const wsUrl =
-      configuredWs ||
-      `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/collaboration`
+    const defaultWs = import.meta.env.DEV
+      ? 'ws://localhost:8080/ws/collaboration'
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/collaboration`
+    const wsUrl = configuredWs || defaultWs
 
     try {
       this.socket = new WebSocket(wsUrl)

@@ -1,6 +1,6 @@
 import { authService } from './authService'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8080' : '')).replace(/\/$/, '')
 
 export async function apiClient<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = authService.getToken()

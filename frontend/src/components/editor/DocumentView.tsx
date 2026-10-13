@@ -83,6 +83,18 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
 
     const unsubscribe = collaborationSocket.subscribe((msg: CollaborationMessage) => {
       if (msg.type === 'JOIN' || msg.type === 'PRESENCE') {
+        if (msg.type === 'JOIN' && msg.userId !== currentUser.id) {
+          // Announce own presence so new joiner sees us immediately
+          collaborationSocket.broadcastPresence(true)
+        }
+        let parsedColor = '#34A853'
+        if (msg.payload) {
+          try {
+            parsedColor = JSON.parse(msg.payload).color || '#34A853'
+          } catch {
+            // fallback
+          }
+        }
         setCollaborators((prev) => {
           if (prev.some((c) => c.userId === msg.userId)) return prev
           return [
@@ -91,10 +103,14 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
               userId: msg.userId,
               name: msg.userName,
               email: `${msg.userName.toLowerCase().replace(/\s+/g, '.')}@docspace.io`,
-              color: msg.payload ? JSON.parse(msg.payload).color || '#34A853' : '#34A853'
+              color: parsedColor
             }
           ]
         })
+      } else if (msg.type === 'UPDATE') {
+        if (msg.userId !== currentUser.id && msg.payload) {
+          setDoc((prev) => (prev ? { ...prev, content: msg.payload! } : null))
+        }
       } else if (msg.type === 'LEAVE') {
         setCollaborators((prev) => prev.filter((c) => c.userId !== msg.userId))
       }

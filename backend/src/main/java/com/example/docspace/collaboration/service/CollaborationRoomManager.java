@@ -91,4 +91,19 @@ public class CollaborationRoomManager {
         Set<WebSocketSession> sessions = documentRooms.get(documentId);
         return sessions != null ? sessions.size() : 0;
     }
+
+    public java.util.List<SessionMeta> getActiveMembers(UUID documentId, String excludeSessionId) {
+        Set<WebSocketSession> sessions = documentRooms.get(documentId);
+        if (sessions == null) return java.util.Collections.emptyList();
+        java.util.List<SessionMeta> members = new java.util.ArrayList<>();
+        for (WebSocketSession s : sessions) {
+            if (s.isOpen() && (excludeSessionId == null || !s.getId().equals(excludeSessionId))) {
+                SessionMeta meta = sessionRegistry.get(s.getId());
+                if (meta != null) {
+                    members.add(meta);
+                }
+            }
+        }
+        return members;
+    }
 }
