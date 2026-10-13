@@ -1,10 +1,8 @@
 package com.example.docspace.collaboration.model;
 
-import java.util.UUID;
-
 public record CollaborationMessage(
         MessageType type,
-        UUID documentId,
+        String documentId,
         String userId,
         String userName,
         String payload

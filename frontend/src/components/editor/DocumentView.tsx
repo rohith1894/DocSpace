@@ -18,11 +18,13 @@ import type {
 interface DocumentViewProps {
   documentId: string
   onBackToDashboard: () => void
+  onOpenAuth?: () => void
 }
 
 export const DocumentView: React.FC<DocumentViewProps> = ({
   documentId,
-  onBackToDashboard
+  onBackToDashboard,
+  onOpenAuth
 }) => {
   const [doc, setDoc] = useState<DocumentDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -75,7 +77,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     return () => {
       isMounted = false
     }
-  }, [documentId])
+  }, [documentId, currentUser.id])
 
   // Connect to real-time WebSocket room
   useEffect(() => {
@@ -224,14 +226,34 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   }
 
   if (error || !doc) {
+    const isAuthRequired =
+      !authService.getToken() ||
+      error?.toLowerCase().includes('401') ||
+      error?.toLowerCase().includes('unavailable') ||
+      error?.toLowerCase().includes('unauthorized') ||
+      error?.toLowerCase().includes('jwt')
+
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#f8fafd] text-gray-600 px-4">
         <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-xs border border-gray-200 text-center">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Document Not Found</h2>
-          <p className="text-sm text-gray-500 mb-6">{error || 'This document may have been deleted.'}</p>
-          <Button onClick={onBackToDashboard} variant="primary" size="md" icon={<ArrowLeft className="w-4 h-4" />}>
-            Back to Documents
-          </Button>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">
+            {isAuthRequired ? 'Sign In Required' : 'Document Not Found'}
+          </h2>
+          <p className="text-sm text-gray-500 mb-6">
+            {isAuthRequired
+              ? 'Please sign in or create an account to view and edit this collaborative document in real time.'
+              : (error || 'This document may have been deleted.')}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            {isAuthRequired && onOpenAuth && (
+              <Button onClick={onOpenAuth} variant="primary" size="md">
+                Sign In / Register
+              </Button>
+            )}
+            <Button onClick={onBackToDashboard} variant="secondary" size="md" icon={<ArrowLeft className="w-4 h-4" />}>
+              Back to Documents
+            </Button>
+          </div>
         </div>
       </div>
     )

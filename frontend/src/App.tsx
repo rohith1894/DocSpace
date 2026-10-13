@@ -25,6 +25,9 @@ export function App() {
       const hash = window.location.hash.replace('#', '')
       if (hash && (hash.startsWith('doc-') || hash.length > 10)) {
         setActiveDocId(hash)
+        if (!authService.getToken()) {
+          setIsAuthModalOpen(true)
+        }
       } else {
         setActiveDocId(null)
       }
@@ -110,6 +113,7 @@ export function App() {
         <DocumentView
           documentId={activeDocId}
           onBackToDashboard={handleBackToDashboard}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
         />
       ) : (
         <DashboardView

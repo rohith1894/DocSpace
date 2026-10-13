@@ -26,7 +26,7 @@ public class CollaborationRoomManager {
     private static final Logger log = LoggerFactory.getLogger(CollaborationRoomManager.class);
 
     // Map: documentId -> Set of active WebSocket sessions
-    private final Map<UUID, Set<WebSocketSession>> documentRooms = new ConcurrentHashMap<>();
+    private final Map<String, Set<WebSocketSession>> documentRooms = new ConcurrentHashMap<>();
 
     // Map: session.getId() -> SessionMeta (documentId, userId)
     private final Map<String, SessionMeta> sessionRegistry = new ConcurrentHashMap<>();
@@ -37,9 +37,9 @@ public class CollaborationRoomManager {
         this.objectMapper = objectMapper;
     }
 
-    public record SessionMeta(UUID documentId, String userId, String userName) {}
+    public record SessionMeta(String documentId, String userId, String userName) {}
 
-    public void joinRoom(UUID documentId, String userId, String userName, WebSocketSession session) {
+    public void joinRoom(String documentId, String userId, String userName, WebSocketSession session) {
         documentRooms.computeIfAbsent(documentId, k -> new CopyOnWriteArraySet<>()).add(session);
         sessionRegistry.put(session.getId(), new SessionMeta(documentId, userId, userName));
 
@@ -61,7 +61,7 @@ public class CollaborationRoomManager {
         }
     }
 
-    public void broadcastToRoom(UUID documentId, CollaborationMessage message, WebSocketSession senderSession) {
+    public void broadcastToRoom(String documentId, CollaborationMessage message, WebSocketSession senderSession) {
         Set<WebSocketSession> sessions = documentRooms.get(documentId);
         if (sessions == null || sessions.isEmpty()) return;
 
@@ -87,12 +87,12 @@ public class CollaborationRoomManager {
         }
     }
 
-    public int getRoomSubscriberCount(UUID documentId) {
+    public int getRoomSubscriberCount(String documentId) {
         Set<WebSocketSession> sessions = documentRooms.get(documentId);
         return sessions != null ? sessions.size() : 0;
     }
 
-    public java.util.List<SessionMeta> getActiveMembers(UUID documentId, String excludeSessionId) {
+    public java.util.List<SessionMeta> getActiveMembers(String documentId, String excludeSessionId) {
         Set<WebSocketSession> sessions = documentRooms.get(documentId);
         if (sessions == null) return java.util.Collections.emptyList();
         java.util.List<SessionMeta> members = new java.util.ArrayList<>();

@@ -18,10 +18,22 @@ export async function apiClient<T>(endpoint: string, options: RequestInit = {}):
     }
   }
 
-  const url = `${API_BASE_URL}${endpoint}`
+  // Ensure strict zero-cache policy on mobile browsers and edge proxies
+  headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+  headers.set('Pragma', 'no-cache')
+  headers.set('Expires', '0')
+
+  const method = (options.method || 'GET').toUpperCase()
+  let url = `${API_BASE_URL}${endpoint}`
+  if (method === 'GET' || method === 'HEAD') {
+    const separator = url.includes('?') ? '&' : '?'
+    url = `${url}${separator}_t=${Date.now()}`
+  }
+
   let response: Response
   try {
     response = await fetch(url, {
+      cache: 'no-store',
       ...options,
       headers
     })

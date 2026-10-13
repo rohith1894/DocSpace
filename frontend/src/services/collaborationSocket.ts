@@ -17,17 +17,50 @@ export class CollaborationSocket {
   private user: { id: string; name: string; color: string } | null = null
   private listeners: Set<MessageHandler> = new Set()
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 3
   private reconnectTimer: number | null = null
+  private heartbeatTimer: number | null = null
   private isExplicitlyClosed = false
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      // Reconnect immediately when mobile screen unlocks or browser tab becomes visible
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && !this.isExplicitlyClosed && this.documentId && this.user) {
+          if (!this.socket || this.socket.readyState === WebSocket.CLOSED || this.socket.readyState === WebSocket.CLOSING) {
+            this.initSocket()
+          }
+        }
+      })
+
+      // Reconnect immediately when mobile device reconnects to Wi-Fi / cellular data
+      window.addEventListener('online', () => {
+        if (!this.isExplicitlyClosed && this.documentId && this.user) {
+          if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            this.initSocket()
+          }
+        }
+      })
+
+      window.addEventListener('focus', () => {
+        if (!this.isExplicitlyClosed && this.documentId && this.user) {
+          if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            this.initSocket()
+          }
+        }
+      })
+    }
+  }
 
   connect(documentId: string, user: { id: string; name: string; color: string }): void {
     this.documentId = documentId
     this.user = user
     this.isExplicitlyClosed = false
 
-    // Initialize local cross-tab BroadcastChannel (peer-to-peer across browser tabs)
+    // Initialize local cross-tab BroadcastChannel
     try {
+      if (this.broadcastChannel) {
+        this.broadcastChannel.close()
+      }
       this.broadcastChannel = new BroadcastChannel(`docspace_room_${documentId}`)
       this.broadcastChannel.onmessage = (event) => {
         const message: CollaborationMessage = event.data
@@ -38,10 +71,15 @@ export class CollaborationSocket {
     }
 
     this.initSocket()
+    this.startHeartbeat()
   }
 
   private initSocket(): void {
-    if (!this.documentId || !this.user) return
+    if (!this.documentId || !this.user || this.isExplicitlyClosed) return
+
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      return
+    }
 
     const configuredWs = import.meta.env.VITE_WS_URL
     const defaultWs = import.meta.env.DEV
@@ -80,7 +118,11 @@ export class CollaborationSocket {
 
       this.socket.onerror = () => {
         if (this.socket) {
-          this.socket.close()
+          try {
+            this.socket.close()
+          } catch {
+            // ignore
+          }
         }
       }
     } catch {
@@ -89,10 +131,11 @@ export class CollaborationSocket {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) return
+    if (this.isExplicitlyClosed) return
 
     this.reconnectAttempts += 1
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 5000)
+    // Exponential backoff capped at 2.5s for fast mobile recovery
+    const delay = Math.min(500 * Math.pow(1.5, Math.min(this.reconnectAttempts, 8)), 2500)
 
     if (this.reconnectTimer) {
       window.clearTimeout(this.reconnectTimer)
@@ -103,13 +146,44 @@ export class CollaborationSocket {
     }, delay)
   }
 
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    // Heartbeat every 15s to keep mobile carrier NAT & Cloudflare tunnel alive
+    this.heartbeatTimer = window.setInterval(() => {
+      if (this.isExplicitlyClosed || !this.documentId || !this.user) return
+
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        this.send({
+          type: 'PRESENCE',
+          documentId: this.documentId,
+          userId: this.user.id,
+          userName: this.user.name,
+          payload: JSON.stringify({ ping: true, color: this.user.color })
+        })
+      } else if (!this.socket || this.socket.readyState === WebSocket.CLOSED) {
+        this.initSocket()
+      }
+    }, 15000)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      window.clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
+
   send(message: CollaborationMessage): void {
     // 1. Send via WebSocket if open
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(message))
+      try {
+        this.socket.send(JSON.stringify(message))
+      } catch (err) {
+        console.warn('WebSocket send failed:', err)
+      }
     }
 
-    // 2. Also broadcast to other browser tabs via BroadcastChannel (works on Vercel preview)
+    // 2. Also broadcast to other browser tabs via BroadcastChannel
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(message)
@@ -139,8 +213,10 @@ export class CollaborationSocket {
 
   disconnect(): void {
     this.isExplicitlyClosed = true
+    this.stopHeartbeat()
     if (this.reconnectTimer) {
       window.clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
     }
     if (this.socket) {
       if (this.socket.readyState === WebSocket.OPEN && this.documentId && this.user) {
@@ -151,11 +227,19 @@ export class CollaborationSocket {
           userName: this.user.name
         })
       }
-      this.socket.close()
+      try {
+        this.socket.close()
+      } catch {
+        // ignore
+      }
       this.socket = null
     }
     if (this.broadcastChannel) {
-      this.broadcastChannel.close()
+      try {
+        this.broadcastChannel.close()
+      } catch {
+        // ignore
+      }
       this.broadcastChannel = null
     }
     this.listeners.clear()

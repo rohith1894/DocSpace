@@ -5,6 +5,7 @@ import com.example.docspace.common.dto.ApiResponse;
 import com.example.docspace.document.dto.*;
 import com.example.docspace.document.service.DocumentService;
 import jakarta.validation.Valid;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -26,7 +27,11 @@ public class DocumentController {
     public ResponseEntity<ApiResponse<List<DocumentSummaryDto>>> listDocuments(
             @AuthenticationPrincipal UserPrincipal principal) {
         List<DocumentSummaryDto> list = documentService.getDocuments(principal.getId());
-        return ResponseEntity.ok(ApiResponse.ok(list));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().mustRevalidate())
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
+                .body(ApiResponse.ok(list));
     }
 
     @GetMapping("/{id}")
@@ -34,7 +39,11 @@ public class DocumentController {
             @PathVariable UUID id,
             @AuthenticationPrincipal UserPrincipal principal) {
         DocumentDetailDto doc = documentService.getDocumentById(id, principal.getId());
-        return ResponseEntity.ok(ApiResponse.ok(doc));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().mustRevalidate())
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
+                .body(ApiResponse.ok(doc));
     }
 
     @PostMapping
