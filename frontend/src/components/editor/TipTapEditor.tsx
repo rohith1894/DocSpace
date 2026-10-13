@@ -62,7 +62,7 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
     if (editor && initialContent !== undefined) {
       const currentHTML = editor.getHTML()
       if (currentHTML !== initialContent && !editor.isFocused) {
-        editor.commands.setContent(initialContent, { emitUpdate: false })
+        editor.commands.setContent(initialContent, false)
       }
     }
   }, [editor, initialContent])
