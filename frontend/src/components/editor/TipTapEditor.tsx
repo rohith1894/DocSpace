@@ -55,13 +55,14 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
 
     isApplyingRemoteRef.current = true
     try {
-      const { from, to } = editor.state.selection
       editor.commands.setContent(remoteContent, false)
 
-      // Restore cursor position if still within document bounds
-      const docSize = editor.state.doc.content.size
-      if (from <= docSize && to <= docSize) {
-        editor.commands.setTextSelection({ from, to })
+      // Move cursor to the end of the document as requested
+      if (editor.isFocused) {
+        editor.commands.focus('end')
+      } else {
+        const endPos = editor.state.doc.content.size
+        editor.commands.setTextSelection(Math.max(0, endPos - 1))
       }
     } catch {
       // ignore selection recovery failures
