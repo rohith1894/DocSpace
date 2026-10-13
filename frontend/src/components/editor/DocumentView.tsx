@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import * as Y from 'yjs'
+import { uint8ArrayToBase64, base64ToUint8Array } from '@/utils/crdt'
 import { Navbar } from '@/components/layout/Navbar'
 import { TipTapEditor } from './TipTapEditor'
 import { ShareModal } from '@/components/share/ShareModal'
@@ -30,6 +32,10 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [isShareOpen, setIsShareOpen] = useState(false)
 
+  // Isolated Yjs CRDT Document Instance for this session
+  const ydocRef = useRef<Y.Doc>(new Y.Doc())
+  const ydoc = ydocRef.current
+
   const currentUser = authService.getCurrentUser() || {
     id: 'user-demo-1',
     name: 'You',
@@ -47,7 +53,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     }
   ])
 
-  // Load document on mount or ID change
+  // Load document metadata and initial content from backend
   useEffect(() => {
     let isMounted = true
     setIsLoading(true)
@@ -73,7 +79,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     }
   }, [documentId])
 
-  // Connect to real-time WebSocket room
+  // Connect to real-time WebSocket room and sync Yjs CRDT updates
   useEffect(() => {
     collaborationSocket.connect(documentId, {
       id: currentUser.id,
@@ -81,11 +87,47 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       color: '#4285F4'
     })
 
+    // 1. Broadcast local Yjs CRDT updates to peers over WebSocket
+    const handleYdocUpdate = (update: Uint8Array, origin: any) => {
+      if (origin !== 'remote') {
+        const payload = uint8ArrayToBase64(update)
+        collaborationSocket.send({
+          type: 'UPDATE',
+          documentId,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          payload
+        })
+      }
+    }
+    ydoc.on('update', handleYdocUpdate)
+
+    // 2. Announce presence & request initial CRDT state vector
+    const stateVector = Y.encodeStateVector(ydoc)
+    collaborationSocket.send({
+      type: 'SYNC',
+      documentId,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      payload: uint8ArrayToBase64(stateVector)
+    })
+
+    // 3. Listen to incoming WebSocket messages from room peers
     const unsubscribe = collaborationSocket.subscribe((msg: CollaborationMessage) => {
       if (msg.type === 'JOIN' || msg.type === 'PRESENCE') {
         if (msg.type === 'JOIN' && msg.userId !== currentUser.id) {
-          // Announce own presence so new joiner sees us immediately
+          // Announce own presence and send full document state to the newcomer
           collaborationSocket.broadcastPresence(true)
+          const stateUpdate = Y.encodeStateAsUpdate(ydoc)
+          if (stateUpdate.byteLength > 0) {
+            collaborationSocket.send({
+              type: 'UPDATE',
+              documentId,
+              userId: currentUser.id,
+              userName: currentUser.name,
+              payload: uint8ArrayToBase64(stateUpdate)
+            })
+          }
         }
         let parsedColor = '#34A853'
         if (msg.payload) {
@@ -107,9 +149,34 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
             }
           ]
         })
-      } else if (msg.type === 'UPDATE') {
+      } else if (msg.type === 'SYNC') {
+        // Peer requested state diff: compute missing updates based on their state vector
         if (msg.userId !== currentUser.id && msg.payload) {
-          setDoc((prev) => (prev ? { ...prev, content: msg.payload! } : null))
+          try {
+            const peerVector = base64ToUint8Array(msg.payload)
+            const diff = Y.encodeStateAsUpdate(ydoc, peerVector)
+            if (diff.byteLength > 0) {
+              collaborationSocket.send({
+                type: 'UPDATE',
+                documentId,
+                userId: currentUser.id,
+                userName: currentUser.name,
+                payload: uint8ArrayToBase64(diff)
+              })
+            }
+          } catch (err) {
+            console.error('Error handling Yjs SYNC vector:', err)
+          }
+        }
+      } else if (msg.type === 'UPDATE') {
+        // Peer typed: apply binary CRDT delta into local Yjs document
+        if (msg.userId !== currentUser.id && msg.payload) {
+          try {
+            const updateBytes = base64ToUint8Array(msg.payload)
+            Y.applyUpdate(ydoc, updateBytes, 'remote')
+          } catch (err) {
+            console.error('Error applying remote Yjs CRDT update:', err)
+          }
         }
       } else if (msg.type === 'LEAVE') {
         setCollaborators((prev) => prev.filter((c) => c.userId !== msg.userId))
@@ -117,12 +184,13 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     })
 
     return () => {
+      ydoc.off('update', handleYdocUpdate)
       unsubscribe()
       collaborationSocket.disconnect()
     }
-  }, [documentId, currentUser.id, currentUser.name])
+  }, [documentId, currentUser.id, currentUser.name, ydoc])
 
-  // Handle document content change with debounced autosave
+  // Handle document content change with debounced autosave to Postgres
   const handleContentChange = useCallback(
     async (htmlContent: string) => {
       if (!doc || doc.currentUserRole === 'VIEWER') return
@@ -130,20 +198,11 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       try {
         await documentService.saveDocumentContent(doc.id, htmlContent)
         setSaveStatus('saved')
-
-        // Notify room peers of update
-        collaborationSocket.send({
-          type: 'UPDATE',
-          documentId: doc.id,
-          userId: currentUser.id,
-          userName: currentUser.name,
-          payload: htmlContent
-        })
       } catch {
         setSaveStatus('error')
       }
     },
-    [doc, currentUser]
+    [doc]
   )
 
   // Handle title rename (with optimistic locking metadata version)
@@ -233,8 +292,9 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
         onBackToDashboard={onBackToDashboard}
       />
 
-      {/* TipTap Rich Text Editor paper */}
+      {/* TipTap Rich Text Editor paper with Yjs CRDT */}
       <TipTapEditor
+        ydoc={ydoc}
         initialContent={doc.content}
         readOnly={doc.currentUserRole === 'VIEWER'}
         onContentChange={handleContentChange}

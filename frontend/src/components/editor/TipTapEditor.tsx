@@ -1,36 +1,44 @@
 import React, { useEffect, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import Collaboration from '@tiptap/extension-collaboration'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
+import type * as Y from 'yjs'
 import { Toolbar } from './Toolbar'
 
 interface TipTapEditorProps {
+  ydoc: Y.Doc
   initialContent?: string
   readOnly?: boolean
   onContentChange?: (htmlContent: string) => void
 }
 
 export const TipTapEditor: React.FC<TipTapEditorProps> = ({
+  ydoc,
   initialContent = '',
   readOnly = false,
   onContentChange
 }) => {
   const debounceTimerRef = useRef<number | null>(null)
+  const isInitializedRef = useRef(false)
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
+        history: false, // Managed by Yjs CRDT
         heading: {
           levels: [1, 2, 3]
         }
+      }),
+      Collaboration.configure({
+        document: ydoc
       }),
       Placeholder.configure({
         placeholder: 'Start writing your document or paste text...'
       }),
       CharacterCount.configure()
     ],
-    content: initialContent,
     editable: !readOnly,
     editorProps: {
       attributes: {
@@ -40,15 +48,26 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
     onUpdate: ({ editor }) => {
       if (readOnly || !onContentChange) return
 
-      // Debounce autosave triggers by 600ms (reduces excessive writes)
+      // Debounce saving full HTML snapshots to Postgres
       if (debounceTimerRef.current) {
         window.clearTimeout(debounceTimerRef.current)
       }
       debounceTimerRef.current = window.setTimeout(() => {
         onContentChange(editor.getHTML())
-      }, 600)
+      }, 1500)
     }
   })
+
+  // Initialize document content from database if ydoc is empty
+  useEffect(() => {
+    if (editor && !isInitializedRef.current && initialContent) {
+      isInitializedRef.current = true
+      const fragment = ydoc.getXmlFragment('default')
+      if (fragment.length === 0 && initialContent.trim() !== '<p></p>' && initialContent.trim() !== '') {
+        editor.commands.setContent(initialContent, false)
+      }
+    }
+  }, [editor, ydoc, initialContent])
 
   // Synchronize readOnly mode changes
   useEffect(() => {
@@ -56,16 +75,6 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
       editor.setEditable(!readOnly)
     }
   }, [editor, readOnly])
-
-  // Synchronize external / collaborative updates when content changes remotely
-  useEffect(() => {
-    if (editor && initialContent !== undefined) {
-      const currentHTML = editor.getHTML()
-      if (currentHTML !== initialContent && !editor.isFocused) {
-        editor.commands.setContent(initialContent, false)
-      }
-    }
-  }, [editor, initialContent])
 
   // Cleanup timers on unmount
   useEffect(() => {
