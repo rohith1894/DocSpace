@@ -1,0 +1,30 @@
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.npm
+*.log
+
+# Java / Spring Boot (for upcoming backend)
+backend/target/
+*.class
+*.jar
+*.war
+.m2/
+
+# IDE / Editor
+.idea/
+*.iml
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local

@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/* Base styling and Google Docs-like aesthetics */
+:root {
+  --editor-paper-bg: #ffffff;
+  --editor-bg: #f8f9fa;
+  --font-doc: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-doc);
+  background-color: var(--editor-bg);
+  color: #202124;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar for clean UI */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #dadce0;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bdc1c6;
+}
+
+/* TipTap Editor ProseMirror styling to simulate a realistic Google Docs canvas */
+.tiptap {
+  outline: none !important;
+  min-height: 100%;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  color: #9aa0a6;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.tiptap h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: #1a1a1a;
+}
+
+.tiptap h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: #2a2a2a;
+}
+
+.tiptap h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
+  color: #3a3a3a;
+}
+
+.tiptap p {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+.tiptap ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tiptap ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid #1a73e8;
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-right: 0;
+  color: #5f6368;
+  font-style: italic;
+}
+
+.tiptap code {
+  background-color: #f1f3f4;
+  color: #d93025;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.tiptap pre {
+  background-color: #202124;
+  color: #e8eaed;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow-x: auto;
+}
+
+.tiptap pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
