@@ -3,6 +3,8 @@ import { Navbar } from '@/components/layout/Navbar'
 import { TipTapEditor } from './TipTapEditor'
 import { ShareModal } from '@/components/share/ShareModal'
 import { documentService } from '@/services/documentService'
+import { authService } from '@/services/authService'
+import { collaborationSocket, type CollaborationMessage } from '@/services/collaborationSocket'
 import { Loader2, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import type {
@@ -28,20 +30,20 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [isShareOpen, setIsShareOpen] = useState(false)
 
-  // Simulated live collaborators in this document room (for initial UI and presence testing)
-  const [collaborators] = useState<PresenceCollaborator[]>([
+  const currentUser = authService.getCurrentUser() || {
+    id: 'user-demo-1',
+    name: 'You',
+    email: 'demo@docspace.io'
+  }
+
+  // Active collaborators dynamically tracked via WebSocket
+  const [collaborators, setCollaborators] = useState<PresenceCollaborator[]>([
     {
-      userId: 'user-demo-1',
-      name: 'You',
-      email: 'demo@docspace.io',
+      userId: currentUser.id,
+      name: currentUser.name,
+      email: currentUser.email,
       color: '#4285F4',
       isCurrent: true
-    },
-    {
-      userId: 'user-demo-2',
-      name: 'Sarah Connor',
-      email: 'sarah.editor@example.com',
-      color: '#34A853'
     }
   ])
 
@@ -71,7 +73,40 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     }
   }, [documentId])
 
-  // Handle document content change with autosave simulation
+  // Connect to real-time WebSocket room
+  useEffect(() => {
+    collaborationSocket.connect(documentId, {
+      id: currentUser.id,
+      name: currentUser.name,
+      color: '#4285F4'
+    })
+
+    const unsubscribe = collaborationSocket.subscribe((msg: CollaborationMessage) => {
+      if (msg.type === 'JOIN' || msg.type === 'PRESENCE') {
+        setCollaborators((prev) => {
+          if (prev.some((c) => c.userId === msg.userId)) return prev
+          return [
+            ...prev,
+            {
+              userId: msg.userId,
+              name: msg.userName,
+              email: `${msg.userName.toLowerCase().replace(/\s+/g, '.')}@docspace.io`,
+              color: msg.payload ? JSON.parse(msg.payload).color || '#34A853' : '#34A853'
+            }
+          ]
+        })
+      } else if (msg.type === 'LEAVE') {
+        setCollaborators((prev) => prev.filter((c) => c.userId !== msg.userId))
+      }
+    })
+
+    return () => {
+      unsubscribe()
+      collaborationSocket.disconnect()
+    }
+  }, [documentId, currentUser.id, currentUser.name])
+
+  // Handle document content change with debounced autosave
   const handleContentChange = useCallback(
     async (htmlContent: string) => {
       if (!doc || doc.currentUserRole === 'VIEWER') return
@@ -79,21 +114,34 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       try {
         await documentService.saveDocumentContent(doc.id, htmlContent)
         setSaveStatus('saved')
+
+        // Notify room peers of update
+        collaborationSocket.send({
+          type: 'UPDATE',
+          documentId: doc.id,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          payload: htmlContent
+        })
       } catch {
         setSaveStatus('error')
       }
     },
-    [doc]
+    [doc, currentUser]
   )
 
-  // Handle title rename
+  // Handle title rename (with optimistic locking metadata version)
   const handleTitleChange = async (newTitle: string) => {
     if (!doc || doc.currentUserRole === 'VIEWER') return
     try {
-      const updated = await documentService.updateDocumentTitle(doc.id, newTitle)
-      setDoc((prev) => (prev ? { ...prev, title: updated.title } : null))
-    } catch {
-      // Handle error gracefully
+      const updated = await documentService.updateDocumentTitle(
+        doc.id,
+        newTitle,
+        doc.metadataVersion
+      )
+      setDoc((prev) => (prev ? { ...prev, title: updated.title, metadataVersion: updated.metadataVersion } : null))
+    } catch (err: any) {
+      alert(err.message || 'Failed to rename title')
     }
   }
 

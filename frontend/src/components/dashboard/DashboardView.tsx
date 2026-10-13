@@ -1,15 +1,18 @@
 import React, { useState } from 'react'
-import { FileText, Search, Plus, Folder, Loader2 } from 'lucide-react'
+import { FileText, Search, Plus, Folder, Loader2, LogIn, LogOut } from 'lucide-react'
 import { DocumentCard } from './DocumentCard'
 import { Avatar } from '@/components/common/Avatar'
 import { Modal } from '@/components/common/Modal'
 import { Input } from '@/components/common/Input'
 import { Button } from '@/components/common/Button'
-import type { DocumentMetadata } from '@/types'
+import type { DocumentMetadata, User } from '@/types'
 
 interface DashboardViewProps {
   documents: DocumentMetadata[]
   isLoading: boolean
+  currentUser: User | null
+  onOpenAuth: () => void
+  onLogout: () => void
   onCreateDocument: (title?: string) => Promise<void>
   onOpenDocument: (id: string) => void
   onDeleteDocument: (id: string) => Promise<void>
@@ -19,6 +22,9 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   documents,
   isLoading,
+  currentUser,
+  onOpenAuth,
+  onLogout,
   onCreateDocument,
   onOpenDocument,
   onDeleteDocument,
@@ -79,9 +85,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Profile Avatar */}
+        {/* Profile Avatar & Auth controls */}
         <div className="flex items-center gap-3">
-          <Avatar name="Demo User" color="#1a73e8" size="md" title="Logged in as Demo User" />
+          {currentUser ? (
+            <div className="flex items-center gap-2">
+              <div className="text-right hidden sm:block">
+                <p className="text-xs font-semibold text-gray-800 leading-tight">{currentUser.name}</p>
+                <p className="text-[11px] text-gray-400">{currentUser.email}</p>
+              </div>
+              <Avatar name={currentUser.name} color="#1a73e8" size="md" title={`Signed in as ${currentUser.name}`} />
+              <button
+                onClick={onLogout}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors ml-1"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onOpenAuth}
+              icon={<LogIn className="w-4 h-4" />}
+            >
+              Sign In
+            </Button>
+          )}
         </div>
       </header>
 

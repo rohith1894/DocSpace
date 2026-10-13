@@ -1,15 +1,12 @@
 import type { DocumentMetadata, DocumentDetail, DocumentPermission, DocumentRole } from '@/types'
+import { BackendDocumentService } from './backendDocumentService'
+import { authService } from './authService'
 
-/**
- * IDocumentService:
- * Service interface implementing the Service / Adapter pattern.
- * Decouples the UI from the concrete HTTP / WebSocket transport.
- */
 export interface IDocumentService {
   getDocuments(): Promise<DocumentMetadata[]>
   getDocumentById(id: string): Promise<DocumentDetail>
   createDocument(title?: string): Promise<DocumentMetadata>
-  updateDocumentTitle(id: string, title: string): Promise<DocumentMetadata>
+  updateDocumentTitle(id: string, title: string, expectedVersion?: number): Promise<DocumentMetadata>
   saveDocumentContent(id: string, content: string): Promise<void>
   deleteDocument(id: string): Promise<void>
   shareDocument(id: string, email: string, role: DocumentRole): Promise<DocumentPermission>
@@ -19,7 +16,6 @@ export interface IDocumentService {
 const STORAGE_KEY = 'docspace_documents'
 const CONTENT_PREFIX = 'docspace_content_'
 
-// Default initial document for first-time onboarding
 const INITIAL_DOCUMENTS: DocumentMetadata[] = [
   {
     id: 'doc-welcome-101',
@@ -34,19 +30,6 @@ const INITIAL_DOCUMENTS: DocumentMetadata[] = [
       { userId: 'user-demo-1', email: 'demo@docspace.io', name: 'You (Owner)', role: 'OWNER' },
       { userId: 'user-demo-2', email: 'sarah.editor@example.com', name: 'Sarah Connor', role: 'EDITOR' },
       { userId: 'user-demo-3', email: 'alex.viewer@example.com', name: 'Alex Murphy', role: 'VIEWER' }
-    ]
-  },
-  {
-    id: 'doc-architecture-202',
-    title: 'Architecture & Scalability Blueprint',
-    ownerId: 'user-demo-1',
-    ownerEmail: 'demo@docspace.io',
-    createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-    metadataVersion: 2,
-    currentUserRole: 'OWNER',
-    permissions: [
-      { userId: 'user-demo-1', email: 'demo@docspace.io', name: 'You (Owner)', role: 'OWNER' }
     ]
   }
 ]
@@ -67,11 +50,6 @@ const INITIAL_WELCOME_CONTENT = `
   <p>Try editing this text, changing heading levels, adding bullet points, or testing the document title rename above!</p>
 `
 
-/**
- * LocalMockDocumentService:
- * In-browser mock adapter that persists state to browser localStorage.
- * Enables full UI interaction, auto-save simulation, and CRUD operations.
- */
 export class LocalMockDocumentService implements IDocumentService {
   private getStoredList(): DocumentMetadata[] {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -92,26 +70,20 @@ export class LocalMockDocumentService implements IDocumentService {
   }
 
   async getDocuments(): Promise<DocumentMetadata[]> {
-    await this.simulateLatency()
     return this.getStoredList()
   }
 
   async getDocumentById(id: string): Promise<DocumentDetail> {
-    await this.simulateLatency()
     const list = this.getStoredList()
     const doc = list.find((d) => d.id === id)
     if (!doc) {
       throw new Error(`Document with id ${id} not found`)
     }
     const content = localStorage.getItem(`${CONTENT_PREFIX}${id}`) || '<p>Start typing your document...</p>'
-    return {
-      ...doc,
-      content
-    }
+    return { ...doc, content }
   }
 
   async createDocument(title = 'Untitled document'): Promise<DocumentMetadata> {
-    await this.simulateLatency()
     const list = this.getStoredList()
     const newId = `doc-${Date.now()}`
     const newDoc: DocumentMetadata = {
@@ -136,9 +108,7 @@ export class LocalMockDocumentService implements IDocumentService {
   async updateDocumentTitle(id: string, title: string): Promise<DocumentMetadata> {
     const list = this.getStoredList()
     const index = list.findIndex((d) => d.id === id)
-    if (index === -1) {
-      throw new Error('Document not found')
-    }
+    if (index === -1) throw new Error('Document not found')
     list[index].title = title.trim() || 'Untitled document'
     list[index].updatedAt = new Date().toISOString()
     list[index].metadataVersion += 1
@@ -157,7 +127,6 @@ export class LocalMockDocumentService implements IDocumentService {
   }
 
   async deleteDocument(id: string): Promise<void> {
-    await this.simulateLatency()
     let list = this.getStoredList()
     list = list.filter((d) => d.id !== id)
     this.saveStoredList(list)
@@ -165,15 +134,10 @@ export class LocalMockDocumentService implements IDocumentService {
   }
 
   async shareDocument(id: string, email: string, role: DocumentRole): Promise<DocumentPermission> {
-    await this.simulateLatency()
     const list = this.getStoredList()
     const doc = list.find((d) => d.id === id)
-    if (!doc) {
-      throw new Error('Document not found')
-    }
-    if (!doc.permissions) {
-      doc.permissions = []
-    }
+    if (!doc) throw new Error('Document not found')
+    if (!doc.permissions) doc.permissions = []
     const existing = doc.permissions.find((p) => p.email.toLowerCase() === email.toLowerCase())
     if (existing) {
       existing.role = role
@@ -192,18 +156,114 @@ export class LocalMockDocumentService implements IDocumentService {
   }
 
   async removePermission(id: string, userId: string): Promise<void> {
-    await this.simulateLatency()
     const list = this.getStoredList()
     const doc = list.find((d) => d.id === id)
     if (!doc || !doc.permissions) return
     doc.permissions = doc.permissions.filter((p) => p.userId !== userId)
     this.saveStoredList(list)
   }
+}
 
-  private simulateLatency(ms = 120): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
+/**
+ * Resilient Document Service:
+ * Automatically uses the real Spring Boot backend if authenticated,
+ * falling back to local storage if offline or not logged in.
+ */
+export class ResilientDocumentService implements IDocumentService {
+  private backend = new BackendDocumentService()
+  private mock = new LocalMockDocumentService()
+
+  private isBackendActive(): boolean {
+    return !!authService.getToken()
+  }
+
+  async getDocuments(): Promise<DocumentMetadata[]> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.getDocuments()
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.getDocuments()
+  }
+
+  async getDocumentById(id: string): Promise<DocumentDetail> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.getDocumentById(id)
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.getDocumentById(id)
+  }
+
+  async createDocument(title?: string): Promise<DocumentMetadata> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.createDocument(title)
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.createDocument(title)
+  }
+
+  async updateDocumentTitle(id: string, title: string, expectedVersion?: number): Promise<DocumentMetadata> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.updateDocumentTitle(id, title, expectedVersion)
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.updateDocumentTitle(id, title)
+  }
+
+  async saveDocumentContent(id: string, content: string): Promise<void> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.saveDocumentContent(id, content)
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.saveDocumentContent(id, content)
+  }
+
+  async deleteDocument(id: string): Promise<void> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.deleteDocument(id)
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.deleteDocument(id)
+  }
+
+  async shareDocument(id: string, email: string, role: DocumentRole): Promise<DocumentPermission> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.shareDocument(id, email, role)
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.shareDocument(id, email, role)
+  }
+
+  async removePermission(id: string, userId: string): Promise<void> {
+    if (this.isBackendActive()) {
+      try {
+        return await this.backend.removePermission(id, userId)
+      } catch (e) {
+        console.warn('Backend call failed, using mock data:', e)
+      }
+    }
+    return this.mock.removePermission(id, userId)
   }
 }
 
-// Singleton export of the active document service
-export const documentService: IDocumentService = new LocalMockDocumentService()
+export const documentService: IDocumentService = new ResilientDocumentService()

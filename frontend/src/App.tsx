@@ -1,19 +1,29 @@
 import { useState, useEffect } from 'react'
 import { DashboardView } from '@/components/dashboard/DashboardView'
 import { DocumentView } from '@/components/editor/DocumentView'
+import { AuthModal } from '@/components/auth/AuthModal'
 import { documentService } from '@/services/documentService'
-import type { DocumentMetadata } from '@/types'
+import { authService } from '@/services/authService'
+import type { DocumentMetadata, User } from '@/types'
 
 export function App() {
   const [documents, setDocuments] = useState<DocumentMetadata[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activeDocId, setActiveDocId] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+
+  // Initialize active user from localStorage on mount
+  useEffect(() => {
+    const user = authService.getCurrentUser()
+    setCurrentUser(user)
+  }, [])
 
   // Sync with browser URL hash (e.g. #doc-welcome-101) for deep linking and refresh persistence
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '')
-      if (hash && hash.startsWith('doc-')) {
+      if (hash && (hash.startsWith('doc-') || hash.length > 10)) {
         setActiveDocId(hash)
       } else {
         setActiveDocId(null)
@@ -25,10 +35,10 @@ export function App() {
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
-  // Fetch documents on initial load
+  // Fetch documents on initial load or user change
   useEffect(() => {
     loadDocuments()
-  }, [])
+  }, [currentUser])
 
   const loadDocuments = async () => {
     setIsLoading(true)
@@ -72,6 +82,17 @@ export function App() {
     )
   }
 
+  const handleAuthSuccess = (user: User) => {
+    setCurrentUser(user)
+    loadDocuments()
+  }
+
+  const handleLogout = () => {
+    authService.clearSession()
+    setCurrentUser(null)
+    loadDocuments()
+  }
+
   return (
     <div className="min-h-screen bg-[#f8fafd] text-[#202124]">
       {activeDocId ? (
@@ -83,12 +104,22 @@ export function App() {
         <DashboardView
           documents={documents}
           isLoading={isLoading}
+          currentUser={currentUser}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+          onLogout={handleLogout}
           onCreateDocument={handleCreateDocument}
           onOpenDocument={handleOpenDocument}
           onDeleteDocument={handleDeleteDocument}
           onRenameDocument={handleRenameDocument}
         />
       )}
+
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
     </div>
   )
 }
