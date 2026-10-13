@@ -69,7 +69,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ editor, readOnly = false }) =>
   }
 
   return (
-    <div className="bg-[#edf2fa] border-y border-gray-200 px-4 py-1.5 flex flex-wrap items-center gap-1 select-none sticky top-0 z-20">
+    <div className="bg-[#edf2fa] border-y border-gray-200 px-2 sm:px-4 py-1.5 flex flex-nowrap sm:flex-wrap overflow-x-auto items-center gap-1 select-none sticky top-0 z-20">
       {/* Undo / Redo */}
       <ToolbarButton
         onClick={() => editor.chain().focus().undo().run()}

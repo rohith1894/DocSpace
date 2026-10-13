@@ -1,40 +1,50 @@
 import React from 'react'
-import { Cloud, CloudCheck, CloudAlert, Loader2 } from 'lucide-react'
+import { CloudCheck, CloudAlert, CloudOff, Loader2 } from 'lucide-react'
 import type { SaveStatus } from '@/types'
 
 interface SaveStatusIndicatorProps {
   status: SaveStatus
 }
 
-export const SaveStatusIndicator: React.FC<SaveStatusIndicatorProps> = ({ status }) => {
-  switch (status) {
-    case 'saving':
-      return (
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-          <span>Saving changes...</span>
-        </div>
-      )
-    case 'saved':
-      return (
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium" title="All changes saved to cloud">
-          <CloudCheck className="w-4 h-4 text-emerald-600" />
-          <span>Saved</span>
-        </div>
-      )
-    case 'unsaved':
-      return (
-        <div className="flex items-center gap-1.5 text-xs text-amber-600 font-medium">
-          <Cloud className="w-4 h-4" />
-          <span>Unsaved changes</span>
-        </div>
-      )
-    case 'error':
-      return (
-        <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
-          <CloudAlert className="w-4 h-4" />
-          <span>Failed to save</span>
-        </div>
-      )
+const VARIANTS: Record<SaveStatus, { icon: React.ReactNode; label: string; className: string; title: string }> = {
+  saving: {
+    icon: <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />,
+    label: 'Saving...',
+    className: 'text-gray-500',
+    title: 'Sending your changes'
+  },
+  saved: {
+    icon: <CloudCheck className="w-4 h-4 text-emerald-600" />,
+    label: 'Saved',
+    className: 'text-gray-500',
+    title: 'All changes saved'
+  },
+  offline: {
+    icon: <CloudOff className="w-4 h-4" />,
+    label: 'Offline',
+    className: 'text-amber-600',
+    title: 'Reconnecting. Your edits are kept and will sync automatically.'
+  },
+  error: {
+    icon: <CloudAlert className="w-4 h-4" />,
+    label: 'Not saved',
+    className: 'text-red-600',
+    title: 'Your changes could not be saved'
   }
+}
+
+export const SaveStatusIndicator: React.FC<SaveStatusIndicatorProps> = ({ status }) => {
+  const variant = VARIANTS[status]
+  return (
+    <div
+      className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${variant.className}`}
+      title={variant.title}
+      role="status"
+      data-testid="save-status"
+      data-status={status}
+    >
+      {variant.icon}
+      <span className="hidden sm:inline">{variant.label}</span>
+    </div>
+  )
 }

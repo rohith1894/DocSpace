@@ -1,50 +1,28 @@
 import type { User } from '@/types'
+import { API_BASE_URL } from './config'
 
 const TOKEN_KEY = 'docspace_jwt_token'
 const USER_KEY = 'docspace_current_user'
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8080' : '')).replace(/\/$/, '')
 
-export interface AuthResponseData {
+interface AuthResponseData {
   token: string
-  user: {
-    id: string
-    email: string
-    name: string
-  }
+  user: User
 }
 
 export class AuthService {
   getToken(): string | null {
-    const token = localStorage.getItem(TOKEN_KEY)
-    if (token && token.startsWith('mock-jwt-')) {
-      this.clearSession()
-      return null
-    }
-    return token
+    return localStorage.getItem(TOKEN_KEY)
   }
 
   getCurrentUser(): User | null {
-    const token = this.getToken()
-    if (!token) return null
+    if (!this.getToken()) return null
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
     try {
-      return JSON.parse(raw)
+      return JSON.parse(raw) as User
     } catch {
       return null
     }
-  }
-
-  saveSession(token: string, user: { id: string; email: string; name: string }): void {
-    localStorage.setItem(TOKEN_KEY, token)
-    localStorage.setItem(
-      USER_KEY,
-      JSON.stringify({
-        id: user.id,
-        email: user.email,
-        name: user.name
-      })
-    )
   }
 
   clearSession(): void {
@@ -52,60 +30,39 @@ export class AuthService {
     localStorage.removeItem(USER_KEY)
   }
 
-  async register(email: string, name: string, password: string): Promise<User> {
-    const url = `${API_BASE_URL}/api/auth/register`
-    let res: Response
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name, password })
-      })
-    } catch (err: any) {
-      throw new Error(`Failed to connect to backend at ${url}: ${err.message}. Ensure backend is running.`)
-    }
-
-    const contentType = res.headers.get('content-type') || ''
-    if (!contentType.includes('application/json')) {
-      throw new Error(`Backend unavailable at ${url} (HTTP ${res.status})`)
-    }
-
-    const body = await res.json()
-    if (!res.ok || !body.success) {
-      throw new Error(body.message || 'Registration failed')
-    }
-
-    const data: AuthResponseData = body.data
-    this.saveSession(data.token, data.user)
-    return data.user
+  register(email: string, name: string, password: string): Promise<User> {
+    return this.authenticate('/api/auth/register', { email, name, password }, 'Registration failed')
   }
 
-  async login(email: string, password: string): Promise<User> {
-    const url = `${API_BASE_URL}/api/auth/login`
+  login(email: string, password: string): Promise<User> {
+    return this.authenticate('/api/auth/login', { email, password }, 'Invalid email or password')
+  }
+
+  private async authenticate(endpoint: string, body: object, fallbackError: string): Promise<User> {
     let res: Response
     try {
-      res = await fetch(url, {
+      res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify(body)
       })
-    } catch (err: any) {
-      throw new Error(`Failed to connect to backend at ${url}: ${err.message}. Ensure backend is running.`)
+    } catch (err) {
+      throw new Error(`Cannot reach the server: ${(err as Error).message}`)
     }
 
-    const contentType = res.headers.get('content-type') || ''
-    if (!contentType.includes('application/json')) {
-      throw new Error(`Backend unavailable at ${url} (HTTP ${res.status})`)
+    if (!(res.headers.get('content-type') ?? '').includes('application/json')) {
+      throw new Error(`Server unavailable (HTTP ${res.status})`)
+    }
+    const json = await res.json()
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || fallbackError)
     }
 
-    const body = await res.json()
-    if (!res.ok || !body.success) {
-      throw new Error(body.message || 'Invalid email or password')
-    }
-
-    const data: AuthResponseData = body.data
-    this.saveSession(data.token, data.user)
-    return data.user
+    const data: AuthResponseData = json.data
+    const user: User = { id: data.user.id, email: data.user.email, name: data.user.name }
+    localStorage.setItem(TOKEN_KEY, data.token)
+    localStorage.setItem(USER_KEY, JSON.stringify(user))
+    return user
   }
 }
 

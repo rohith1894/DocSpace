@@ -176,9 +176,7 @@ public class DocumentService {
             throw new UnauthorizedAccessException("Viewers cannot edit document content");
         }
 
-        doc.setContent(request.content());
-        doc.setUpdatedAt(Instant.now());
-        documentRepository.save(doc);
+        documentRepository.updateContent(documentId, request.content(), Instant.now());
     }
 
     @Transactional
@@ -240,6 +238,16 @@ public class DocumentService {
         }
 
         permissionRepository.deleteByDocumentIdAndUserId(documentId, targetUserId);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<DocumentRole> findUserRole(UUID documentId, UUID userId) {
+        return documentRepository.findById(documentId).map(doc -> resolveUserRole(doc, userId));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean exists(UUID documentId) {
+        return documentRepository.existsById(documentId);
     }
 
     public DocumentRole resolveUserRole(DocumentEntity doc, UUID userId) {

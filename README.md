@@ -86,14 +86,16 @@ Collaborative editing presents unique concurrency challenges. DocSpace solves th
   ```
   Stale writes are intercepted, throwing `OptimisticLockConflictException` and returning **HTTP 409 Conflict**. Verified via automated suite in `DocumentConcurrencyTest.java`.
 
-### 3. Thread-Safe WebSocket Room Coordination
-* In-memory session coordination utilizes lock-free concurrent primitives:
-  * `ConcurrentHashMap<UUID, Set<WebSocketSession>>` for instant room lookup.
-  * `CopyOnWriteArraySet<WebSocketSession>` preventing `ConcurrentModificationException` during broadcast iteration.
-  * Synchronized socket write guards preventing buffer corruption under concurrent threads.
+### 3. Server-Ordered CRDT Update Log
+Every document has an ordered log of Yjs updates held by `CollaborationRoomManager`:
+* **Join:** the client receives the whole log (`SYNC`), applies it, then sends whatever the server is missing, computed from the log's state vector. That one rule handles first load, edits made while a phone was offline, and messages lost when a socket died.
+* **Edit:** keystrokes within 30 ms are merged into one `UPDATE`; the server assigns the next sequence number, relays it to everyone else and `ACK`s the sender (drives the *Saving… / Saved* indicator).
+* **Compaction:** once the log grows past 100 entries a client sends a `SNAPSHOT` covering everything up to a sequence number, which replaces that prefix.
+* **Persistence:** write-behind into `document_updates`; queued operations are written in one transaction per batch and retried on failure. A room stays in memory until its queue is flushed, so a document is only loaded from the database when the database is complete.
+* **Security:** the handshake carries the JWT (`?token=&documentId=`); viewers can read but every write is rejected server-side. Rejections close with `4401` / `4403` / `4404` so clients stop retrying.
 
-### 4. Resilient Offline-First Client Architecture
-* Uses the **Strategy Pattern** in `documentService.ts`: when authenticated, it communicates with the Spring Boot REST/WebSocket backend; when offline or unauthenticated, it seamlessly transitions to browser local storage.
+### 4. Mobile-Resilient Connections
+`YjsSyncProvider` pings every 20 s and drops sockets that don't answer within 10 s (a phone that slept keeps a dead socket that looks open), reconnects immediately on `visibilitychange` / `online` / `pageshow`, and otherwise backs off with jitter up to 10 s.
 
 ---
 
@@ -191,15 +193,15 @@ mvn spring-boot:run
 
 ## 🧪 Testing
 
-Execute automated integration, concurrency, and security tests:
 ```bash
-cd backend
-mvn clean test
+cd backend && mvn test          # room manager, WebSocket integration, concurrency
+cd frontend && npm test         # sync provider against an in-memory server, UI state mapping
 ```
 
-Includes:
-* **`DocSpaceApplicationTests`:** Verifies context startup and Flyway migration execution.
-* **`DocumentConcurrencyTest`:** Simulates race conditions and confirms optimistic lock exception handling.
+End-to-end, with backend and `npm run dev` running: four browser windows (laptop, iPhone, iPad, second laptop) type concurrently for 10 rounds, the phone drops offline and recovers, a window reloads, and a cold reopen must load identical content from the database.
+```bash
+cd frontend && npm run e2e      # APP_URL / API_URL / ROUNDS / HEADED=1 configurable
+```
 
 ---
 

@@ -57,4 +57,26 @@ class DocumentConcurrencyTest {
             );
         }, "Optimistic locking must reject stale version update to prevent lost updates");
     }
+
+    @Test
+    @DisplayName("Concurrent content saves never conflict and leave the metadata version untouched")
+    void contentSavesDoNotConflictOrBumpMetadataVersion() throws Exception {
+        String email = "content.test." + UUID.randomUUID() + "@example.com";
+        UUID userId = authService.register(new RegisterRequest(email, "Tester", "password123")).user().id();
+        DocumentSummaryDto created = documentService.createDocument(userId, new CreateDocumentRequest("Doc"));
+
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(4)) {
+            var futures = java.util.stream.IntStream.range(0, 20)
+                    .mapToObj(i -> pool.submit(() -> documentService.saveContent(created.id(), userId,
+                            new com.example.docspace.document.dto.SaveContentRequest("<p>v" + i + "</p>"))))
+                    .toList();
+            for (var f : futures) f.get();
+        }
+
+        var detail = documentService.getDocumentById(created.id(), userId);
+        assertEquals(created.metadataVersion(), detail.metadataVersion());
+        assertTrue(detail.content().startsWith("<p>v"));
+        // Renaming with the version seen before editing still succeeds
+        documentService.updateTitle(created.id(), userId, new UpdateTitleRequest("Renamed", created.metadataVersion()));
+    }
 }

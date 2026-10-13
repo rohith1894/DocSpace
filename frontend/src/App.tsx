@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { DashboardView } from '@/components/dashboard/DashboardView'
 import { DocumentView } from '@/components/editor/DocumentView'
 import { AuthModal } from '@/components/auth/AuthModal'
@@ -6,59 +6,47 @@ import { documentService } from '@/services/documentService'
 import { authService } from '@/services/authService'
 import type { DocumentMetadata, User } from '@/types'
 
+const docIdFromHash = () => window.location.hash.replace('#', '') || null
+
 export function App() {
   const [documents, setDocuments] = useState<DocumentMetadata[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [activeDocId, setActiveDocId] = useState<string | null>(null)
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+  const [activeDocId, setActiveDocId] = useState<string | null>(docIdFromHash)
+  const [currentUser, setCurrentUser] = useState<User | null>(() => authService.getCurrentUser())
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(() => docIdFromHash() !== null && !authService.getToken())
 
-  // Initialize active user from localStorage on mount
-  useEffect(() => {
-    const user = authService.getCurrentUser()
-    setCurrentUser(user)
-  }, [])
-
-  // Sync with browser URL hash (e.g. #doc-welcome-101) for deep linking and refresh persistence
+  // The URL hash holds the open document id, so links can be shared and survive refreshes
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash.replace('#', '')
-      if (hash && (hash.startsWith('doc-') || hash.length > 10)) {
-        setActiveDocId(hash)
-        if (!authService.getToken()) {
-          setIsAuthModalOpen(true)
-        }
-      } else {
-        setActiveDocId(null)
-      }
+      const id = docIdFromHash()
+      setActiveDocId(id)
+      if (id && !authService.getToken()) setIsAuthModalOpen(true)
     }
-
-    handleHashChange()
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
-  // Fetch documents on initial load or user change
-  useEffect(() => {
-    loadDocuments()
-  }, [currentUser])
-
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
+    if (!authService.getToken()) {
+      setDocuments([])
+      setIsLoading(false)
+      return
+    }
     setIsLoading(true)
     try {
-      if (!authService.getToken()) {
-        setDocuments([])
-        return
-      }
-      const docs = await documentService.getDocuments()
-      setDocuments(docs)
-    } catch (err: any) {
-      console.error('Failed to load documents from backend:', err)
+      setDocuments(await documentService.getDocuments())
+    } catch (err) {
+      console.error('Failed to load documents:', err)
       setDocuments([])
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
+
+  // Refetch whenever the signed-in user changes
+  useEffect(() => {
+    void loadDocuments()
+  }, [currentUser, loadDocuments])
 
   const handleOpenDocument = (id: string) => {
     window.location.hash = id
@@ -98,19 +86,18 @@ export function App() {
 
   const handleAuthSuccess = (user: User) => {
     setCurrentUser(user)
-    loadDocuments()
   }
 
   const handleLogout = () => {
     authService.clearSession()
     setCurrentUser(null)
-    loadDocuments()
   }
 
   return (
     <div className="min-h-screen bg-[#f8fafd] text-[#202124]">
       {activeDocId ? (
         <DocumentView
+          key={`${currentUser?.id ?? 'anonymous'}:${activeDocId}`}
           documentId={activeDocId}
           onBackToDashboard={handleBackToDashboard}
           onOpenAuth={() => setIsAuthModalOpen(true)}

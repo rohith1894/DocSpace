@@ -1,6 +1,6 @@
 /**
- * Core domain types for DocSpace application.
- * Matches backend database entity specifications and REST API contracts.
+ * Core domain types for DocSpace.
+ * Mirror the backend REST API contracts.
  */
 
 export type DocumentRole = 'OWNER' | 'EDITOR' | 'VIEWER'
@@ -9,8 +9,6 @@ export interface User {
   id: string
   email: string
   name: string
-  avatarUrl?: string
-  color?: string
 }
 
 export interface DocumentPermission {
@@ -33,16 +31,16 @@ export interface DocumentMetadata {
 }
 
 export interface DocumentDetail extends DocumentMetadata {
-  content?: string // HTML or JSON string
+  /** Last HTML rendering of the document; seeds the shared CRDT state for legacy documents. */
+  content?: string
 }
 
-export interface PresenceCollaborator {
+export interface Collaborator {
   userId: string
   name: string
-  email: string
-  color: string
-  isCurrent?: boolean
-  lastActive?: string
+  /** Number of open windows/devices this user has on the document. */
+  connections: number
+  isCurrent: boolean
 }
 
-export type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error'
+export type SaveStatus = 'saved' | 'saving' | 'offline' | 'error'
