@@ -12,11 +12,12 @@ export type MessageHandler = (message: CollaborationMessage) => void
 
 export class CollaborationSocket {
   private socket: WebSocket | null = null
+  private broadcastChannel: BroadcastChannel | null = null
   private documentId: string | null = null
   private user: { id: string; name: string; color: string } | null = null
   private listeners: Set<MessageHandler> = new Set()
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 5
+  private maxReconnectAttempts = 3
   private reconnectTimer: number | null = null
   private isExplicitlyClosed = false
 
@@ -24,22 +25,34 @@ export class CollaborationSocket {
     this.documentId = documentId
     this.user = user
     this.isExplicitlyClosed = false
+
+    // Initialize local cross-tab BroadcastChannel (peer-to-peer across browser tabs)
+    try {
+      this.broadcastChannel = new BroadcastChannel(`docspace_room_${documentId}`)
+      this.broadcastChannel.onmessage = (event) => {
+        const message: CollaborationMessage = event.data
+        this.listeners.forEach((listener) => listener(message))
+      }
+    } catch {
+      // BroadcastChannel not available in older environments
+    }
+
     this.initSocket()
   }
 
   private initSocket(): void {
     if (!this.documentId || !this.user) return
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const wsUrl = `${protocol}//${host}/ws/collaboration`
+    const configuredWs = import.meta.env.VITE_WS_URL
+    const wsUrl =
+      configuredWs ||
+      `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/collaboration`
 
     try {
       this.socket = new WebSocket(wsUrl)
 
       this.socket.onopen = () => {
         this.reconnectAttempts = 0
-        // Send JOIN frame
         this.send({
           type: 'JOIN',
           documentId: this.documentId!,
@@ -54,7 +67,7 @@ export class CollaborationSocket {
           const message: CollaborationMessage = JSON.parse(event.data)
           this.listeners.forEach((listener) => listener(message))
         } catch {
-          // ignore malformed frame
+          // ignore invalid payload
         }
       }
 
@@ -78,7 +91,7 @@ export class CollaborationSocket {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return
 
     this.reconnectAttempts += 1
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000)
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 5000)
 
     if (this.reconnectTimer) {
       window.clearTimeout(this.reconnectTimer)
@@ -90,8 +103,18 @@ export class CollaborationSocket {
   }
 
   send(message: CollaborationMessage): void {
+    // 1. Send via WebSocket if open
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify(message))
+    }
+
+    // 2. Also broadcast to other browser tabs via BroadcastChannel (works on Vercel preview)
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage(message)
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -129,6 +152,10 @@ export class CollaborationSocket {
       }
       this.socket.close()
       this.socket = null
+    }
+    if (this.broadcastChannel) {
+      this.broadcastChannel.close()
+      this.broadcastChannel = null
     }
     this.listeners.clear()
   }
