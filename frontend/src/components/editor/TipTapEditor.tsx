@@ -5,20 +5,30 @@ import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import { Toolbar } from './Toolbar'
 
+export interface RemoteContentUpdate {
+  content: string
+  revision: number
+}
+
 interface TipTapEditorProps {
   initialContent?: string
-  remoteContent?: string
+  remoteUpdate?: RemoteContentUpdate | null
   readOnly?: boolean
   onContentChange?: (htmlContent: string) => void
 }
 
 export const TipTapEditor: React.FC<TipTapEditorProps> = ({
   initialContent = '',
-  remoteContent,
+  remoteUpdate,
   readOnly = false,
   onContentChange
 }) => {
   const isApplyingRemoteRef = useRef(false)
+  const onContentChangeRef = useRef(onContentChange)
+  onContentChangeRef.current = onContentChange
+
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
 
   const editor = useEditor({
     extensions: [
@@ -41,38 +51,43 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
     },
     onUpdate: ({ editor }) => {
       // Do not broadcast local updates if this change was triggered by remote incoming packet
-      if (readOnly || !onContentChange || isApplyingRemoteRef.current) return
-      onContentChange(editor.getHTML())
+      if (readOnlyRef.current || !onContentChangeRef.current || isApplyingRemoteRef.current) return
+      onContentChangeRef.current(editor.getHTML())
     }
   })
 
   // Synchronize remote peer updates with cursor position preservation
   useEffect(() => {
-    if (!editor || !remoteContent) return
+    if (!editor || !remoteUpdate) return
 
     const currentHTML = editor.getHTML()
-    if (currentHTML === remoteContent) return
+    if (currentHTML === remoteUpdate.content) return
 
     isApplyingRemoteRef.current = true
     try {
-      editor.commands.setContent(remoteContent, false)
+      const isFocused = editor.isFocused
+      const { from, to } = editor.state.selection
 
-      // Move cursor to the end of the document as requested
-      if (editor.isFocused) {
-        editor.commands.focus('end')
+      editor.commands.setContent(remoteUpdate.content, false)
+
+      const docSize = editor.state.doc.content.size
+      if (isFocused) {
+        // If the user was typing, restore cursor and maintain mobile keyboard focus
+        const safeFrom = Math.min(from, Math.max(0, docSize - 1))
+        const safeTo = Math.min(to, Math.max(0, docSize - 1))
+        editor.commands.setTextSelection({ from: safeFrom, to: safeTo })
+        editor.commands.focus()
       } else {
-        const endPos = editor.state.doc.content.size
-        editor.commands.setTextSelection(Math.max(0, endPos - 1))
+        // If not actively focused, move cursor to the end
+        editor.commands.setTextSelection(Math.max(0, docSize - 1))
       }
     } catch {
       // ignore selection recovery failures
     } finally {
-      // Release remote flag on next tick
-      setTimeout(() => {
-        isApplyingRemoteRef.current = false
-      }, 50)
+      // Synchronously release remote lock so local keystrokes are never dropped
+      isApplyingRemoteRef.current = false
     }
-  }, [editor, remoteContent])
+  }, [editor, remoteUpdate])
 
   // Synchronize initialContent if document was loaded asynchronously
   useEffect(() => {
@@ -98,15 +113,14 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
 
       {/* Scrollable canvas area */}
       <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center">
-        {/* Realistic Google Docs Paper Sheet */}
-        <div className="w-full max-w-[850px] min-h-[1100px] bg-white rounded-xs shadow-[0_1px_3px_1px_rgba(60,64,67,0.15)] border border-gray-200/80 px-16 py-16 transition-shadow focus-within:shadow-[0_2px_6px_2px_rgba(60,64,67,0.18)]">
-          <EditorContent editor={editor} />
+        <div className="w-full max-w-[850px] bg-white min-h-[1100px] shadow-sm border border-gray-200/80 rounded-sm px-16 py-14 flex flex-col">
+          <EditorContent editor={editor} className="flex-1 focus:outline-none" />
         </div>
 
-        {/* Document Stats Footer */}
-        <div className="w-full max-w-[850px] flex justify-between items-center py-4 text-xs text-gray-400 select-none">
-          <span>{words} words &bull; {characters} characters</span>
-          <span>DocSpace Editor v1.0</span>
+        {/* Word / Character count indicator footer */}
+        <div className="w-full max-w-[850px] mt-3 px-2 flex justify-end text-xs text-gray-600 space-x-4">
+          <span>{words} words</span>
+          <span>{characters} characters</span>
         </div>
       </div>
     </div>

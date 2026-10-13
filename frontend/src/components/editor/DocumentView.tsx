@@ -31,7 +31,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [isShareOpen, setIsShareOpen] = useState(false)
-  const [remoteContent, setRemoteContent] = useState<string | undefined>(undefined)
+  const [remoteUpdate, setRemoteUpdate] = useState<{ content: string; revision: number } | null>(null)
   const latestContentRef = useRef<string>('')
   const dbSaveTimerRef = useRef<number | null>(null)
 
@@ -40,6 +40,12 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     name: 'You',
     email: 'demo@docspace.io'
   }
+
+  const docRef = useRef(doc)
+  docRef.current = doc
+
+  const currentUserRef = useRef(currentUser)
+  currentUserRef.current = currentUser
 
   // Active collaborators dynamically tracked via WebSocket
   const [collaborators, setCollaborators] = useState<PresenceCollaborator[]>([
@@ -128,7 +134,10 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
         // Peer typed: update editor content directly
         if (msg.userId !== currentUser.id && msg.payload) {
           latestContentRef.current = msg.payload
-          setRemoteContent(msg.payload)
+          setRemoteUpdate({
+            content: msg.payload,
+            revision: Date.now() + Math.random()
+          })
         }
       } else if (msg.type === 'LEAVE') {
         setCollaborators((prev) => prev.filter((c) => c.userId !== msg.userId))
@@ -142,37 +151,36 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   }, [documentId, currentUser.id, currentUser.name])
 
   // Handle document content change: Instant WebSocket broadcast + Debounced DB save
-  const handleContentChange = useCallback(
-    (htmlContent: string) => {
-      if (!doc || doc.currentUserRole === 'VIEWER') return
+  const handleContentChange = useCallback((htmlContent: string) => {
+    const currentDoc = docRef.current
+    const user = currentUserRef.current
+    if (!currentDoc || currentDoc.currentUserRole === 'VIEWER') return
 
-      latestContentRef.current = htmlContent
+    latestContentRef.current = htmlContent
 
-      // 1. Broadcast immediately to peers over WebSocket with 0ms delay
-      collaborationSocket.send({
-        type: 'UPDATE',
-        documentId: doc.id,
-        userId: currentUser.id,
-        userName: currentUser.name,
-        payload: htmlContent
-      })
+    // 1. Broadcast immediately to peers over WebSocket with 0ms delay
+    collaborationSocket.send({
+      type: 'UPDATE',
+      documentId: currentDoc.id,
+      userId: user.id,
+      userName: user.name,
+      payload: htmlContent
+    })
 
-      // 2. Debounce asynchronous autosave to Neon PostgreSQL database
-      setSaveStatus('saving')
-      if (dbSaveTimerRef.current) {
-        window.clearTimeout(dbSaveTimerRef.current)
+    // 2. Debounce asynchronous autosave to Neon PostgreSQL database
+    setSaveStatus('saving')
+    if (dbSaveTimerRef.current) {
+      window.clearTimeout(dbSaveTimerRef.current)
+    }
+    dbSaveTimerRef.current = window.setTimeout(async () => {
+      try {
+        await documentService.saveDocumentContent(currentDoc.id, htmlContent)
+        setSaveStatus('saved')
+      } catch {
+        setSaveStatus('error')
       }
-      dbSaveTimerRef.current = window.setTimeout(async () => {
-        try {
-          await documentService.saveDocumentContent(doc.id, htmlContent)
-          setSaveStatus('saved')
-        } catch {
-          setSaveStatus('error')
-        }
-      }, 1500)
-    },
-    [doc, currentUser]
-  )
+    }, 1500)
+  }, [])
 
   // Handle title rename (with optimistic locking metadata version)
   const handleTitleChange = async (newTitle: string) => {
@@ -284,7 +292,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       {/* TipTap Rich Text Editor with real-time peer sync */}
       <TipTapEditor
         initialContent={doc.content}
-        remoteContent={remoteContent}
+        remoteUpdate={remoteUpdate}
         readOnly={doc.currentUserRole === 'VIEWER'}
         onContentChange={handleContentChange}
       />
