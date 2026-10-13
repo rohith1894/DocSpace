@@ -1,44 +1,38 @@
 import React, { useEffect, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import Collaboration from '@tiptap/extension-collaboration'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
-import type * as Y from 'yjs'
 import { Toolbar } from './Toolbar'
 
 interface TipTapEditorProps {
-  ydoc: Y.Doc
   initialContent?: string
+  remoteContent?: string
   readOnly?: boolean
   onContentChange?: (htmlContent: string) => void
 }
 
 export const TipTapEditor: React.FC<TipTapEditorProps> = ({
-  ydoc,
   initialContent = '',
+  remoteContent,
   readOnly = false,
   onContentChange
 }) => {
-  const debounceTimerRef = useRef<number | null>(null)
-  const isInitializedRef = useRef(false)
+  const isApplyingRemoteRef = useRef(false)
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        history: false, // Managed by Yjs CRDT
         heading: {
           levels: [1, 2, 3]
         }
-      }),
-      Collaboration.configure({
-        document: ydoc
       }),
       Placeholder.configure({
         placeholder: 'Start writing your document or paste text...'
       }),
       CharacterCount.configure()
     ],
+    content: initialContent,
     editable: !readOnly,
     editorProps: {
       attributes: {
@@ -46,28 +40,45 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
       }
     },
     onUpdate: ({ editor }) => {
-      if (readOnly || !onContentChange) return
-
-      // Debounce saving full HTML snapshots to Postgres
-      if (debounceTimerRef.current) {
-        window.clearTimeout(debounceTimerRef.current)
-      }
-      debounceTimerRef.current = window.setTimeout(() => {
-        onContentChange(editor.getHTML())
-      }, 1500)
+      // Do not broadcast local updates if this change was triggered by remote incoming packet
+      if (readOnly || !onContentChange || isApplyingRemoteRef.current) return
+      onContentChange(editor.getHTML())
     }
   })
 
-  // Initialize document content from database if ydoc is empty
+  // Synchronize remote peer updates with cursor position preservation
   useEffect(() => {
-    if (editor && !isInitializedRef.current && initialContent) {
-      isInitializedRef.current = true
-      const fragment = ydoc.getXmlFragment('default')
-      if (fragment.length === 0 && initialContent.trim() !== '<p></p>' && initialContent.trim() !== '') {
-        editor.commands.setContent(initialContent, false)
+    if (!editor || !remoteContent) return
+
+    const currentHTML = editor.getHTML()
+    if (currentHTML === remoteContent) return
+
+    isApplyingRemoteRef.current = true
+    try {
+      const { from, to } = editor.state.selection
+      editor.commands.setContent(remoteContent, false)
+
+      // Restore cursor position if still within document bounds
+      const docSize = editor.state.doc.content.size
+      if (from <= docSize && to <= docSize) {
+        editor.commands.setTextSelection({ from, to })
       }
+    } catch {
+      // ignore selection recovery failures
+    } finally {
+      // Release remote flag on next tick
+      setTimeout(() => {
+        isApplyingRemoteRef.current = false
+      }, 50)
     }
-  }, [editor, ydoc, initialContent])
+  }, [editor, remoteContent])
+
+  // Synchronize initialContent if document was loaded asynchronously
+  useEffect(() => {
+    if (editor && initialContent && editor.isEmpty && initialContent.trim() !== '<p></p>') {
+      editor.commands.setContent(initialContent, false)
+    }
+  }, [editor, initialContent])
 
   // Synchronize readOnly mode changes
   useEffect(() => {
@@ -75,15 +86,6 @@ export const TipTapEditor: React.FC<TipTapEditorProps> = ({
       editor.setEditable(!readOnly)
     }
   }, [editor, readOnly])
-
-  // Cleanup timers on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current) {
-        window.clearTimeout(debounceTimerRef.current)
-      }
-    }
-  }, [])
 
   const words = editor?.storage.characterCount?.words() ?? 0
   const characters = editor?.storage.characterCount?.characters() ?? 0

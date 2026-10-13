@@ -5,7 +5,7 @@ import java.util.UUID;
 public record CollaborationMessage(
         MessageType type,
         UUID documentId,
-        UUID userId,
+        String userId,
         String userName,
         String payload
 ) {}

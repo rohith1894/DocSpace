@@ -37,9 +37,9 @@ public class CollaborationRoomManager {
         this.objectMapper = objectMapper;
     }
 
-    public record SessionMeta(UUID documentId, UUID userId, String userName) {}
+    public record SessionMeta(UUID documentId, String userId, String userName) {}
 
-    public void joinRoom(UUID documentId, UUID userId, String userName, WebSocketSession session) {
+    public void joinRoom(UUID documentId, String userId, String userName, WebSocketSession session) {
         documentRooms.computeIfAbsent(documentId, k -> new CopyOnWriteArraySet<>()).add(session);
         sessionRegistry.put(session.getId(), new SessionMeta(documentId, userId, userName));
 
