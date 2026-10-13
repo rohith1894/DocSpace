@@ -15,10 +15,17 @@ export interface AuthResponseData {
 
 export class AuthService {
   getToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY)
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (token && token.startsWith('mock-jwt-')) {
+      this.clearSession()
+      return null
+    }
+    return token
   }
 
   getCurrentUser(): User | null {
+    const token = this.getToken()
+    if (!token) return null
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
     try {
@@ -47,73 +54,58 @@ export class AuthService {
 
   async register(email: string, name: string, password: string): Promise<User> {
     const url = `${API_BASE_URL}/api/auth/register`
+    let res: Response
     try {
-      const res = await fetch(url, {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, name, password })
       })
-
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('application/json')) {
-        const body = await res.json()
-        if (res.ok && body.success) {
-          const data: AuthResponseData = body.data
-          this.saveSession(data.token, data.user)
-          return data.user
-        }
-        throw new Error(body.message || 'Registration failed')
-      }
     } catch (err: any) {
-      if (err.message && !err.message.includes('unavailable') && !err.message.includes('Failed to fetch')) {
-        throw err
-      }
+      throw new Error(`Failed to connect to backend at ${url}: ${err.message}. Ensure backend is running.`)
     }
 
-    // Graceful fallback for static previews without active public backend
-    const fallbackUser: User = {
-      id: `user-${Date.now()}`,
-      email,
-      name: name.trim() || email.split('@')[0]
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Backend unavailable at ${url} (HTTP ${res.status})`)
     }
-    this.saveSession(`mock-jwt-${Date.now()}`, fallbackUser)
-    return fallbackUser
+
+    const body = await res.json()
+    if (!res.ok || !body.success) {
+      throw new Error(body.message || 'Registration failed')
+    }
+
+    const data: AuthResponseData = body.data
+    this.saveSession(data.token, data.user)
+    return data.user
   }
 
   async login(email: string, password: string): Promise<User> {
     const url = `${API_BASE_URL}/api/auth/login`
+    let res: Response
     try {
-      const res = await fetch(url, {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       })
-
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('application/json')) {
-        const body = await res.json()
-        if (res.ok && body.success) {
-          const data: AuthResponseData = body.data
-          this.saveSession(data.token, data.user)
-          return data.user
-        }
-        throw new Error(body.message || 'Invalid email or password')
-      }
     } catch (err: any) {
-      if (err.message && !err.message.includes('unavailable') && !err.message.includes('Failed to fetch')) {
-        throw err
-      }
+      throw new Error(`Failed to connect to backend at ${url}: ${err.message}. Ensure backend is running.`)
     }
 
-    // Graceful fallback for static previews (e.g. Vercel)
-    const isBob = email.toLowerCase().includes('bob')
-    const fallbackUser: User = {
-      id: isBob ? 'user-demo-bob' : 'user-demo-alice',
-      email,
-      name: isBob ? 'Bob Marley' : email.toLowerCase().includes('alice') ? 'Alice Cooper' : email.split('@')[0]
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Backend unavailable at ${url} (HTTP ${res.status})`)
     }
-    this.saveSession(`mock-jwt-${Date.now()}`, fallbackUser)
-    return fallbackUser
+
+    const body = await res.json()
+    if (!res.ok || !body.success) {
+      throw new Error(body.message || 'Invalid email or password')
+    }
+
+    const data: AuthResponseData = body.data
+    this.saveSession(data.token, data.user)
+    return data.user
   }
 }
 

@@ -10,8 +10,12 @@ export async function apiClient<T>(endpoint: string, options: RequestInit = {}):
     headers.set('Content-Type', 'application/json')
   }
 
-  if (token && !token.startsWith('mock-jwt-')) {
-    headers.set('Authorization', `Bearer ${token}`)
+  if (token) {
+    if (token.startsWith('mock-jwt-')) {
+      authService.clearSession()
+    } else {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
   }
 
   const url = `${API_BASE_URL}${endpoint}`

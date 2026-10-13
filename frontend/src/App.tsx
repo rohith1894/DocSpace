@@ -43,8 +43,15 @@ export function App() {
   const loadDocuments = async () => {
     setIsLoading(true)
     try {
+      if (!authService.getToken()) {
+        setDocuments([])
+        return
+      }
       const docs = await documentService.getDocuments()
       setDocuments(docs)
+    } catch (err: any) {
+      console.error('Failed to load documents from backend:', err)
+      setDocuments([])
     } finally {
       setIsLoading(false)
     }
@@ -62,6 +69,10 @@ export function App() {
   }
 
   const handleCreateDocument = async (title?: string) => {
+    if (!authService.getToken()) {
+      setIsAuthModalOpen(true)
+      return
+    }
     const newDoc = await documentService.createDocument(title)
     setDocuments((prev) => [newDoc, ...prev])
     handleOpenDocument(newDoc.id)

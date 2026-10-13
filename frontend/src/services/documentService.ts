@@ -298,4 +298,4 @@ export class ResilientDocumentService implements IDocumentService {
   }
 }
 
-export const documentService: IDocumentService = new ResilientDocumentService()
+export const documentService: IDocumentService = new BackendDocumentService()
