@@ -70,7 +70,28 @@ export class LocalMockDocumentService implements IDocumentService {
   }
 
   async getDocuments(): Promise<DocumentMetadata[]> {
-    return this.getStoredList()
+    const list = this.getStoredList()
+    const currentUser = authService.getCurrentUser()
+    if (!currentUser) return list
+
+    // In mock mode: show documents where user is owner OR user was invited
+    return list
+      .filter((doc) => {
+        if (!doc.ownerEmail || doc.ownerEmail.toLowerCase() === currentUser.email.toLowerCase()) return true
+        if (doc.permissions && doc.permissions.some((p) => p.email.toLowerCase() === currentUser.email.toLowerCase())) {
+          return true
+        }
+        return false
+      })
+      .map((doc) => {
+        const isOwner = doc.ownerEmail?.toLowerCase() === currentUser.email.toLowerCase() || doc.ownerId === currentUser.id
+        const userPerm = doc.permissions?.find((p) => p.email.toLowerCase() === currentUser.email.toLowerCase())
+        const role: DocumentRole = isOwner ? 'OWNER' : userPerm?.role || 'VIEWER'
+        return {
+          ...doc,
+          currentUserRole: role
+        }
+      })
   }
 
   async getDocumentById(id: string): Promise<DocumentDetail> {
@@ -79,24 +100,35 @@ export class LocalMockDocumentService implements IDocumentService {
     if (!doc) {
       throw new Error(`Document with id ${id} not found`)
     }
+    const currentUser = authService.getCurrentUser()
+    let role = doc.currentUserRole
+    if (currentUser) {
+      const isOwner = doc.ownerEmail?.toLowerCase() === currentUser.email.toLowerCase() || doc.ownerId === currentUser.id
+      const userPerm = doc.permissions?.find((p) => p.email.toLowerCase() === currentUser.email.toLowerCase())
+      role = isOwner ? 'OWNER' : userPerm?.role || 'VIEWER'
+    }
     const content = localStorage.getItem(`${CONTENT_PREFIX}${id}`) || '<p>Start typing your document...</p>'
-    return { ...doc, content }
+    return { ...doc, currentUserRole: role, content }
   }
 
   async createDocument(title = 'Untitled document'): Promise<DocumentMetadata> {
     const list = this.getStoredList()
+    const currentUser = authService.getCurrentUser()
+    const ownerEmail = currentUser?.email || 'demo@docspace.io'
+    const ownerId = currentUser?.id || 'user-demo-1'
+    const ownerName = currentUser?.name || 'You (Owner)'
     const newId = `doc-${Date.now()}`
     const newDoc: DocumentMetadata = {
       id: newId,
       title: title.trim() || 'Untitled document',
-      ownerId: 'user-demo-1',
-      ownerEmail: 'demo@docspace.io',
+      ownerId,
+      ownerEmail,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       metadataVersion: 1,
       currentUserRole: 'OWNER',
       permissions: [
-        { userId: 'user-demo-1', email: 'demo@docspace.io', name: 'You (Owner)', role: 'OWNER' }
+        { userId: ownerId, email: ownerEmail, name: ownerName, role: 'OWNER' }
       ]
     }
     list.unshift(newDoc)
