@@ -30,7 +30,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [remoteContent, setRemoteContent] = useState<string | undefined>(undefined)
-
+  const latestContentRef = useRef<string>('')
   const dbSaveTimerRef = useRef<number | null>(null)
 
   const currentUser = authService.getCurrentUser() || {
@@ -61,6 +61,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       .then((data) => {
         if (isMounted) {
           setDoc(data)
+          latestContentRef.current = data.content || ''
           setIsLoading(false)
         }
       })
@@ -89,6 +90,17 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
         if (msg.type === 'JOIN' && msg.userId !== currentUser.id) {
           // Announce own presence so new joiner sees us immediately
           collaborationSocket.broadcastPresence(true)
+
+          // Immediately synchronize latest content to the newly joined peer
+          if (latestContentRef.current) {
+            collaborationSocket.send({
+              type: 'UPDATE',
+              documentId: documentId,
+              userId: currentUser.id,
+              userName: currentUser.name,
+              payload: latestContentRef.current
+            })
+          }
         }
         let parsedColor = '#34A853'
         if (msg.payload) {
@@ -113,6 +125,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       } else if (msg.type === 'UPDATE') {
         // Peer typed: update editor content directly
         if (msg.userId !== currentUser.id && msg.payload) {
+          latestContentRef.current = msg.payload
           setRemoteContent(msg.payload)
         }
       } else if (msg.type === 'LEAVE') {
@@ -130,6 +143,8 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   const handleContentChange = useCallback(
     (htmlContent: string) => {
       if (!doc || doc.currentUserRole === 'VIEWER') return
+
+      latestContentRef.current = htmlContent
 
       // 1. Broadcast immediately to peers over WebSocket with 0ms delay
       collaborationSocket.send({
